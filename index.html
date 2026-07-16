@@ -2,14 +2,16 @@
 <html lang="zh">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <title>钱妮狗狗的小游戏</title>
     <style>
-        body { margin: 0; padding: 0; background-color: #fcebc5; display: flex; justify-content: center; align-items: center; height: 100vh; overflow: hidden; touch-action: none; font-family: sans-serif; }
+        /* 新增 * { touch-action: none; } 彻底杀掉所有元素的默认触摸行为（如双击放大、滑动） */
+        * { touch-action: none; -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
+        body { margin: 0; padding: 0; background-color: #fcebc5; display: flex; justify-content: center; align-items: center; height: 100vh; overflow: hidden; font-family: sans-serif; }
         #game-container { width: 400px; height: 700px; background-color: #fff; position: relative; box-shadow: 0 0 15px rgba(0,0,0,0.2); overflow: hidden; }
-        canvas { display: block; width: 100%; height: 100%; }
+        canvas { display: block; width: 100%; height: 100%; outline: none; }
         
-        #score-board { position: absolute; top: 15px; left: 15px; font-size: 24px; font-weight: bold; color: #333; z-index: 10; user-select: none; }
+        #score-board { position: absolute; top: 15px; left: 15px; font-size: 24px; font-weight: bold; color: #333; z-index: 10; }
         
         #next-panel { position: absolute; top: 15px; right: 15px; text-align: right; font-weight: bold; color: #333; z-index: 10; }
         .next-item { display: flex; align-items: center; justify-content: flex-end; margin-bottom: 8px; font-size: 14px; }
@@ -22,8 +24,7 @@
         #game-over-modal { display: none; position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0, 0, 0, 0.75); z-index: 30; flex-direction: column; justify-content: center; align-items: center; color: white; }
         #game-over-modal h1 { margin: 0 0 15px 0; font-size: 36px; color: #ffeb3b; text-shadow: 2px 2px 4px rgba(0,0,0,0.5); }
         #game-over-modal p { font-size: 24px; margin: 0 0 30px 0; }
-        #game-over-modal button { padding: 12px 30px; font-size: 20px; font-weight: bold; color: #fff; background: #ff69b4; border: 3px solid #fff; border-radius: 30px; cursor: pointer; box-shadow: 0 4px 10px rgba(0,0,0,0.5); transition: transform 0.1s; }
-        #game-over-modal button:active { transform: scale(0.95); }
+        #game-over-modal button { padding: 12px 30px; font-size: 20px; font-weight: bold; color: #fff; background: #ff69b4; border: 3px solid #fff; border-radius: 30px; cursor: pointer; box-shadow: 0 4px 10px rgba(0,0,0,0.5); }
     </style>
 </head>
 <body>
@@ -47,6 +48,30 @@
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/matter-js/0.19.0/matter.min.js"></script>
     <script>
+        // ==========================================
+        // 拦截手机端所有的默认手势（防双击放大、防下拉刷新）
+        // ==========================================
+        document.addEventListener('touchstart', function(event) {
+            if (event.touches.length > 1) {
+                event.preventDefault(); // 阻止多指缩放
+            }
+        }, { passive: false });
+
+        let lastTouchEnd = 0;
+        document.addEventListener('touchend', function(event) {
+            let now = (new Date()).getTime();
+            if (now - lastTouchEnd <= 300) {
+                event.preventDefault(); // 阻止双击放大
+            }
+            lastTouchEnd = now;
+        }, { passive: false });
+
+        document.body.addEventListener('touchmove', function(e) {
+            e.preventDefault(); // 阻止微信页面的橡皮筋下拉和滚动
+        }, { passive: false });
+        // ==========================================
+
+
         const mergeSound = new Audio('merge.mp3');
 
         async function processCircularImage(imageSrc, radius) {
@@ -119,7 +144,6 @@
             const width = 400;
             const height = 700;
 
-            // 开启了抗锯齿和防模糊高清渲染
             const render = Render.create({
                 element: document.getElementById('game-container'),
                 engine: engine,
@@ -128,7 +152,7 @@
                     height: height, 
                     wireframes: false, 
                     background: 'transparent',
-                    pixelRatio: window.devicePixelRatio || 1 // 高清修复魔法代码
+                    pixelRatio: window.devicePixelRatio || 1 
                 }
             });
 
@@ -157,6 +181,10 @@
             let canDrop = true;
             document.getElementById('game-container').addEventListener('pointerdown', function(e) {
                 if (!canDrop || isGameOver) return;
+                
+                // 确保点击时不会触发长按选中等默认行为
+                e.preventDefault(); 
+                
                 const rect = this.getBoundingClientRect();
                 const x = e.clientX - rect.left; 
                 const safeX = Math.max(30, Math.min(width - 30, x));
@@ -192,7 +220,7 @@
                         Composite.add(engine.world, createFruit(midX, midY, level + 1));
 
                         mergeSound.currentTime = 0; 
-                        mergeSound.play().catch(e => console.log("需用户先交互"));
+                        mergeSound.play().catch(e => console.log("等待用户交互"));
 
                         score += (level + 1) * 2;
                         document.getElementById('score').innerText = score;
