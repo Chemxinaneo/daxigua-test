@@ -3,21 +3,49 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>我的专属合成照片游戏 - 8图版</title>
+    <title>钱妮狗狗的小游戏</title>
     <style>
-        body { margin: 0; padding: 0; background-color: #fcebc5; display: flex; justify-content: center; align-items: center; height: 100vh; overflow: hidden; touch-action: none; }
+        body { margin: 0; padding: 0; background-color: #fcebc5; display: flex; justify-content: center; align-items: center; height: 100vh; overflow: hidden; touch-action: none; font-family: sans-serif; }
         #game-container { width: 400px; height: 700px; background-color: #fff; position: relative; box-shadow: 0 0 15px rgba(0,0,0,0.2); overflow: hidden; }
         canvas { display: block; width: 100%; height: 100%; }
-        #score-board { position: absolute; top: 15px; left: 15px; font-size: 24px; font-weight: bold; font-family: sans-serif; color: #333; z-index: 10; user-select: none; }
+        
+        #score-board { position: absolute; top: 15px; left: 15px; font-size: 24px; font-weight: bold; color: #333; z-index: 10; user-select: none; }
+        
+        /* 新增：右上角的“下一个”预览面板 */
+        #next-panel { position: absolute; top: 15px; right: 15px; text-align: right; font-weight: bold; color: #333; z-index: 10; }
+        .next-item { display: flex; align-items: center; justify-content: flex-end; margin-bottom: 8px; font-size: 14px; }
+        .next-item img { border-radius: 50%; box-shadow: 0 0 5px rgba(0,0,0,0.3); margin-left: 10px; object-fit: cover; background: #eee; }
+        
+        /* 改进：红线常驻 */
+        #death-line { position: absolute; top: 120px; left: 0; width: 100%; height: 2px; background-color: rgba(255, 0, 0, 0.2); z-index: 5; border-top: 2px dashed red; }
+        
         #loading { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); font-size: 20px; font-weight: bold; color: #666; z-index: 20; }
-        #death-line { position: absolute; top: 120px; left: 0; width: 100%; height: 2px; background-color: rgba(255, 0, 0, 0.5); z-index: 5; border-top: 2px dashed red; display: none; }
+        
+        /* 新增：游戏结束结算面板 */
+        #game-over-modal { display: none; position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0, 0, 0, 0.75); z-index: 30; flex-direction: column; justify-content: center; align-items: center; color: white; }
+        #game-over-modal h1 { margin: 0 0 15px 0; font-size: 36px; color: #ffeb3b; text-shadow: 2px 2px 4px rgba(0,0,0,0.5); }
+        #game-over-modal p { font-size: 24px; margin: 0 0 30px 0; }
+        #game-over-modal button { padding: 12px 30px; font-size: 20px; font-weight: bold; color: #fff; background: #ff69b4; border: 3px solid #fff; border-radius: 30px; cursor: pointer; box-shadow: 0 4px 10px rgba(0,0,0,0.5); transition: transform 0.1s; }
+        #game-over-modal button:active { transform: scale(0.95); }
     </style>
 </head>
 <body>
     <div id="game-container">
         <div id="score-board">分数: <span id="score">0</span></div>
+        
+        <div id="next-panel" style="display: none;">
+            <div class="next-item">下一个: <img id="next-img-1" src="" width="45" height="45"></div>
+            <div class="next-item">下下次: <img id="next-img-2" src="" width="30" height="30"></div>
+        </div>
+
         <div id="death-line"></div>
-        <div id="loading">正在处理照片...</div>
+        <div id="loading">正在加载照片...</div>
+        
+        <div id="game-over-modal">
+            <h1>游戏结束！</h1>
+            <p>最终得分: <span id="final-score">0</span></p>
+            <button onclick="location.reload()">重新开始</button>
+        </div>
     </div>
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/matter-js/0.19.0/matter.min.js"></script>
@@ -49,7 +77,6 @@
             });
         }
 
-        // 这里改成了 8 个等级，重新分配了大小，让终极形态依然很大
         const originalLevels = [
             { radius: 20, img: '0.png', color: '#ffb6c1' }, 
             { radius: 35, img: '1.png', color: '#ff69b4' },
@@ -58,11 +85,18 @@
             { radius: 95, img: '4.png', color: '#c71585' },
             { radius: 115, img: '5.png', color: '#8a2be2' },
             { radius: 135, img: '6.png', color: '#4b0082' },
-            { radius: 160, img: '7.png', color: '#006400' } // 终极大球
+            { radius: 160, img: '7.png', color: '#006400' }
         ];
 
         let processedLevels = [];
         let isGameOver = false;
+        let nextQueue = []; // 存放即将掉落的球的序号
+
+        // 更新右上角预览图的函数
+        function updateNextUI() {
+            document.getElementById('next-img-1').src = processedLevels[nextQueue[0]].texture;
+            document.getElementById('next-img-2').src = processedLevels[nextQueue[1]].texture;
+        }
 
         async function initGame() {
             for (let i = 0; i < originalLevels.length; i++) {
@@ -72,6 +106,12 @@
             }
             
             document.getElementById('loading').style.display = 'none';
+            document.getElementById('next-panel').style.display = 'block';
+
+            // 游戏开始前，先随机生成两个放入队列
+            nextQueue.push(Math.floor(Math.random() * 3));
+            nextQueue.push(Math.floor(Math.random() * 3));
+            updateNextUI();
 
             const Engine = Matter.Engine,
                   Render = Matter.Render,
@@ -117,13 +157,15 @@
                 if (!canDrop || isGameOver) return;
                 const rect = this.getBoundingClientRect();
                 const x = e.clientX - rect.left; 
-                
                 const safeX = Math.max(30, Math.min(width - 30, x));
                 
-                // 因为总共只有8级，这里调整为每次只随机掉落 0 到 2 级，防止一开始球就太大
-                const randomLevel = Math.floor(Math.random() * 3); 
+                // 从队列里拿出第一个球扔下去
+                const currentLevel = nextQueue.shift(); 
+                Composite.add(engine.world, createFruit(safeX, 40, currentLevel));
                 
-                Composite.add(engine.world, createFruit(safeX, 40, randomLevel));
+                // 马上再随机生成一个补充到队列最后，并刷新画面
+                nextQueue.push(Math.floor(Math.random() * 3));
+                updateNextUI();
                 
                 canDrop = false;
                 setTimeout(() => { canDrop = true; }, 600);
@@ -150,7 +192,7 @@
                         Composite.add(engine.world, createFruit(midX, midY, level + 1));
 
                         mergeSound.currentTime = 0; 
-                        mergeSound.play().catch(e => console.log("等待用户交互"));
+                        mergeSound.play().catch(e => console.log("等待用户交互播放音效"));
 
                         score += (level + 1) * 2;
                         document.getElementById('score').innerText = score;
@@ -158,10 +200,10 @@
                 }
             });
 
-            let gameOverTimer = null;
+            // 更精准的死亡判定：只要球的最高点越界，且没有在剧烈弹跳
+            let dangerFrames = 0;
             const deathLineY = 120; 
-            const deathLineUI = document.getElementById('death-line');
-
+            
             Events.on(engine, 'afterUpdate', function() {
                 if (isGameOver) return;
                 
@@ -170,26 +212,27 @@
                 
                 for (let i = 0; i < bodies.length; i++) {
                     const body = bodies[i];
-                    if (body.label.startsWith('fruit_') && body.position.y < deathLineY && body.velocity.y > -0.5 && body.velocity.y < 0.5) {
-                        isDanger = true;
-                        break;
+                    // bounds.min.y 是球体的最顶端边缘
+                    if (body.label.startsWith('fruit_') && body.bounds.min.y < deathLineY) {
+                        // 速度小于 1.5 说明不是刚刚合成弹上去的，而是真的堆积到了这个高度
+                        if (Math.abs(body.velocity.y) < 1.5 && Math.abs(body.velocity.x) < 1.5) {
+                            isDanger = true;
+                            break;
+                        }
                     }
                 }
 
                 if (isDanger) {
-                    deathLineUI.style.display = 'block'; 
-                    if (!gameOverTimer) {
-                        gameOverTimer = setTimeout(() => {
-                            isGameOver = true;
-                            alert('游戏结束！\n你的最终得分是：' + score + '\n刷新网页再来一局！');
-                        }, 2000); 
+                    dangerFrames++;
+                    // 如果持续 120 帧（大约 2 秒钟）都在线上，就Game Over
+                    if (dangerFrames > 120) {
+                        isGameOver = true;
+                        document.getElementById('final-score').innerText = score;
+                        document.getElementById('game-over-modal').style.display = 'flex';
                     }
                 } else {
-                    deathLineUI.style.display = 'none'; 
-                    if (gameOverTimer) {
-                        clearTimeout(gameOverTimer);
-                        gameOverTimer = null;
-                    }
+                    // 一旦掉下去或者被挤开，重置计时器
+                    dangerFrames = 0;
                 }
             });
 
