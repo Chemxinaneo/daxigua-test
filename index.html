@@ -5,7 +5,6 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <title>钱妮狗狗的小游戏</title>
     <style>
-        /* 新增 * { touch-action: none; } 彻底杀掉所有元素的默认触摸行为（如双击放大、滑动） */
         * { touch-action: none; -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
         body { margin: 0; padding: 0; background-color: #fcebc5; display: flex; justify-content: center; align-items: center; height: 100vh; overflow: hidden; font-family: sans-serif; }
         #game-container { width: 400px; height: 700px; background-color: #fff; position: relative; box-shadow: 0 0 15px rgba(0,0,0,0.2); overflow: hidden; }
@@ -48,12 +47,9 @@
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/matter-js/0.19.0/matter.min.js"></script>
     <script>
-        // ==========================================
-        // 拦截手机端所有的默认手势（防双击放大、防下拉刷新）
-        // ==========================================
         document.addEventListener('touchstart', function(event) {
             if (event.touches.length > 1) {
-                event.preventDefault(); // 阻止多指缩放
+                event.preventDefault(); 
             }
         }, { passive: false });
 
@@ -61,18 +57,17 @@
         document.addEventListener('touchend', function(event) {
             let now = (new Date()).getTime();
             if (now - lastTouchEnd <= 300) {
-                event.preventDefault(); // 阻止双击放大
+                event.preventDefault(); 
             }
             lastTouchEnd = now;
         }, { passive: false });
 
         document.body.addEventListener('touchmove', function(e) {
-            e.preventDefault(); // 阻止微信页面的橡皮筋下拉和滚动
+            e.preventDefault(); 
         }, { passive: false });
-        // ==========================================
 
-
-        const mergeSound = new Audio('merge.mp3');
+        // 获取手机的高清像素比例
+        const dpr = window.devicePixelRatio || 1;
 
         async function processCircularImage(imageSrc, radius) {
             return new Promise((resolve) => {
@@ -81,9 +76,13 @@
                 img.onload = () => {
                     const canvas = document.createElement('canvas');
                     const size = radius * 2;
-                    canvas.width = size;
-                    canvas.height = size;
+                    
+                    // 让内部画布按手机高清比例放大
+                    canvas.width = size * dpr;
+                    canvas.height = size * dpr;
                     const ctx = canvas.getContext('2d');
+                    ctx.scale(dpr, dpr);
+
                     ctx.beginPath();
                     ctx.arc(radius, radius, radius, 0, Math.PI * 2);
                     ctx.clip();
@@ -152,7 +151,7 @@
                     height: height, 
                     wireframes: false, 
                     background: 'transparent',
-                    pixelRatio: window.devicePixelRatio || 1 
+                    pixelRatio: dpr 
                 }
             });
 
@@ -173,7 +172,8 @@
                     label: 'fruit_' + levelIndex,
                     render: {
                         fillStyle: config.color,
-                        sprite: config.texture ? { texture: config.texture, xScale: 1, yScale: 1 } : undefined
+                        // 将生成的大图片等比缩小贴上去，保证高清
+                        sprite: config.texture ? { texture: config.texture, xScale: 1/dpr, yScale: 1/dpr } : undefined
                     }
                 });
             }
@@ -182,7 +182,6 @@
             document.getElementById('game-container').addEventListener('pointerdown', function(e) {
                 if (!canDrop || isGameOver) return;
                 
-                // 确保点击时不会触发长按选中等默认行为
                 e.preventDefault(); 
                 
                 const rect = this.getBoundingClientRect();
@@ -218,9 +217,6 @@
 
                         Composite.remove(engine.world, [bodyA, bodyB]);
                         Composite.add(engine.world, createFruit(midX, midY, level + 1));
-
-                        mergeSound.currentTime = 0; 
-                        mergeSound.play().catch(e => console.log("等待用户交互"));
 
                         score += (level + 1) * 2;
                         document.getElementById('score').innerText = score;
