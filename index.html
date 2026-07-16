@@ -3,24 +3,27 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>3张照片测试版 (自动裁剪修复)</title>
+    <title>我的专属合成照片游戏 - 8图版</title>
     <style>
         body { margin: 0; padding: 0; background-color: #fcebc5; display: flex; justify-content: center; align-items: center; height: 100vh; overflow: hidden; touch-action: none; }
         #game-container { width: 400px; height: 700px; background-color: #fff; position: relative; box-shadow: 0 0 15px rgba(0,0,0,0.2); overflow: hidden; }
         canvas { display: block; width: 100%; height: 100%; }
         #score-board { position: absolute; top: 15px; left: 15px; font-size: 24px; font-weight: bold; font-family: sans-serif; color: #333; z-index: 10; user-select: none; }
         #loading { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); font-size: 20px; font-weight: bold; color: #666; z-index: 20; }
+        #death-line { position: absolute; top: 120px; left: 0; width: 100%; height: 2px; background-color: rgba(255, 0, 0, 0.5); z-index: 5; border-top: 2px dashed red; display: none; }
     </style>
 </head>
 <body>
     <div id="game-container">
         <div id="score-board">分数: <span id="score">0</span></div>
+        <div id="death-line"></div>
         <div id="loading">正在处理照片...</div>
     </div>
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/matter-js/0.19.0/matter.min.js"></script>
     <script>
-        // --- 核心魔法：自动缩放并裁剪照片为圆形的工具函数 ---
+        const mergeSound = new Audio('merge.mp3');
+
         async function processCircularImage(imageSrc, radius) {
             return new Promise((resolve) => {
                 const img = new Image();
@@ -31,55 +34,45 @@
                     canvas.width = size;
                     canvas.height = size;
                     const ctx = canvas.getContext('2d');
-
-                    // 绘制圆形剪裁区域
                     ctx.beginPath();
                     ctx.arc(radius, radius, radius, 0, Math.PI * 2);
                     ctx.clip();
-
-                    // 计算等比例缩放 (类似 CSS 的 object-fit: cover)
                     const scale = Math.max(size / img.width, size / img.height);
                     const drawWidth = img.width * scale;
                     const drawHeight = img.height * scale;
-                    // 居中偏移量
                     const x = (size - drawWidth) / 2;
                     const y = (size - drawHeight) / 2;
-
                     ctx.drawImage(img, x, y, drawWidth, drawHeight);
-                    
-                    // 将处理好的圆形图片导出为可以作为材质的 URL
                     resolve(canvas.toDataURL('image/png'));
                 };
                 img.onerror = () => resolve(null);
             });
         }
 
-        // 原始照片配置参数
+        // 这里改成了 8 个等级，重新分配了大小，让终极形态依然很大
         const originalLevels = [
-            { radius: 40, img: '0.png', color: '#ffb6c1' }, 
-            { radius: 80, img: '1.png', color: '#ff69b4' }, 
-            { radius: 140, img: '2.png', color: '#ff1493' } 
+            { radius: 20, img: '0.png', color: '#ffb6c1' }, 
+            { radius: 35, img: '1.png', color: '#ff69b4' },
+            { radius: 55, img: '2.png', color: '#ff1493' },
+            { radius: 75, img: '3.png', color: '#db7093' },
+            { radius: 95, img: '4.png', color: '#c71585' },
+            { radius: 115, img: '5.png', color: '#8a2be2' },
+            { radius: 135, img: '6.png', color: '#4b0082' },
+            { radius: 160, img: '7.png', color: '#006400' } // 终极大球
         ];
 
         let processedLevels = [];
+        let isGameOver = false;
 
-        // 游戏初始化主干
         async function initGame() {
-            // 1. 等待所有照片被自动裁剪处理完毕
             for (let i = 0; i < originalLevels.length; i++) {
                 const config = originalLevels[i];
                 const base64Img = await processCircularImage(config.img, config.radius);
-                processedLevels.push({
-                    radius: config.radius,
-                    color: config.color,
-                    texture: base64Img
-                });
+                processedLevels.push({ radius: config.radius, color: config.color, texture: base64Img });
             }
             
-            // 隐藏加载提示
             document.getElementById('loading').style.display = 'none';
 
-            // 2. 启动物理引擎
             const Engine = Matter.Engine,
                   Render = Matter.Render,
                   Runner = Matter.Runner,
@@ -110,32 +103,30 @@
                 return Bodies.circle(x, y, config.radius, {
                     restitution: 0.2,
                     friction: 0.3,
+                    density: 0.001 * (levelIndex + 1), 
                     label: 'fruit_' + levelIndex,
                     render: {
                         fillStyle: config.color,
-                        sprite: config.texture ? {
-                            texture: config.texture,
-                            // 因为图片已经被裁剪成了正好等于物理直径(radius * 2)的大小，所以比例设为1即可
-                            xScale: 1, 
-                            yScale: 1
-                        } : undefined
+                        sprite: config.texture ? { texture: config.texture, xScale: 1, yScale: 1 } : undefined
                     }
                 });
             }
 
             let canDrop = true;
             document.getElementById('game-container').addEventListener('pointerdown', function(e) {
-                if (!canDrop) return;
+                if (!canDrop || isGameOver) return;
                 const rect = this.getBoundingClientRect();
                 const x = e.clientX - rect.left; 
                 
                 const safeX = Math.max(30, Math.min(width - 30, x));
-                const randomLevel = Math.floor(Math.random() * 2); 
+                
+                // 因为总共只有8级，这里调整为每次只随机掉落 0 到 2 级，防止一开始球就太大
+                const randomLevel = Math.floor(Math.random() * 3); 
                 
                 Composite.add(engine.world, createFruit(safeX, 40, randomLevel));
                 
                 canDrop = false;
-                setTimeout(() => { canDrop = true; }, 700);
+                setTimeout(() => { canDrop = true; }, 600);
             });
 
             Events.on(engine, 'collisionStart', function(event) {
@@ -158,8 +149,46 @@
                         Composite.remove(engine.world, [bodyA, bodyB]);
                         Composite.add(engine.world, createFruit(midX, midY, level + 1));
 
+                        mergeSound.currentTime = 0; 
+                        mergeSound.play().catch(e => console.log("等待用户交互"));
+
                         score += (level + 1) * 2;
                         document.getElementById('score').innerText = score;
+                    }
+                }
+            });
+
+            let gameOverTimer = null;
+            const deathLineY = 120; 
+            const deathLineUI = document.getElementById('death-line');
+
+            Events.on(engine, 'afterUpdate', function() {
+                if (isGameOver) return;
+                
+                let isDanger = false;
+                const bodies = Composite.allBodies(engine.world);
+                
+                for (let i = 0; i < bodies.length; i++) {
+                    const body = bodies[i];
+                    if (body.label.startsWith('fruit_') && body.position.y < deathLineY && body.velocity.y > -0.5 && body.velocity.y < 0.5) {
+                        isDanger = true;
+                        break;
+                    }
+                }
+
+                if (isDanger) {
+                    deathLineUI.style.display = 'block'; 
+                    if (!gameOverTimer) {
+                        gameOverTimer = setTimeout(() => {
+                            isGameOver = true;
+                            alert('游戏结束！\n你的最终得分是：' + score + '\n刷新网页再来一局！');
+                        }, 2000); 
+                    }
+                } else {
+                    deathLineUI.style.display = 'none'; 
+                    if (gameOverTimer) {
+                        clearTimeout(gameOverTimer);
+                        gameOverTimer = null;
                     }
                 }
             });
@@ -168,7 +197,6 @@
             Runner.run(Runner.create(), engine);
         }
 
-        // 启动！
         initGame();
     </script>
 </body>
